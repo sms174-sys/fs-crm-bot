@@ -6,19 +6,33 @@ const SHEET_ID = process.env.SHEET_ID;
 const GOOGLE_CREDENTIALS = process.env.GOOGLE_CREDENTIALS;
 
 module.exports = async (req, res) => {
-  // Мгновенно отвечаем Telegram
-  res.status(200).json({ ok: true });
+  if (req.method === 'GET') {
+    return res.status(200).json({
+      status: 'running',
+      token: TOKEN ? 'SET' : 'MISSING',
+      chat: CHAT_ID ? 'SET' : 'MISSING',
+      sheet: SHEET_ID ? 'SET' : 'MISSING',
+      creds: GOOGLE_CREDENTIALS ? 'SET' : 'MISSING'
+    });
+  }
 
   try {
     const update = req.body;
-    if (!update.message || !update.message.text) return;
-    if (!update.message.from || update.message.from.is_bot) return;
+    
+    if (!update || !update.message) {
+      return res.status(200).json({ ok: true, skip: 'no message' });
+    }
 
     const chatId = String(update.message.chat.id);
     const userId = String(update.message.from.id);
-    if (userId !== CHAT_ID) return;
+    const text = update.message.text || '';
 
-    const text = update.message.text.trim();
+    console.log('Got message:', text, 'from:', userId);
+
+    if (userId !== CHAT_ID) {
+      return res.status(200).json({ ok: true, skip: 'wrong user' });
+    }
+
     const cmd = text.split('@')[0].split(' ')[0].toLowerCase();
 
     if (cmd === '/start') {
@@ -32,8 +46,12 @@ module.exports = async (req, res) => {
     } else {
       await sendTg(chatId, 'Не понял. Напишите /start для списка команд');
     }
+
+    return res.status(200).json({ ok: true });
+
   } catch (err) {
-    console.error('Error:', err);
+    console.error('ERROR:', err.message, err.stack);
+    return res.status(200).json({ ok: true, error: err.message });
   }
 };
 
@@ -64,7 +82,6 @@ async function createDeal(text, chatId) {
     if (lower.startsWith('комментарий:')) comment = val;
   }
 
-  // Получаем последний ID
   const resp = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
     range: 'A:A'
@@ -93,7 +110,7 @@ async function createDeal(text, chatId) {
     }
   });
 
-  await sendTg(chatId, `✅ Сделка #${newId} создана!\n${name} / ${phone}\n${need} / ${price}`);
+  await sendTg(chatId, '✅ Сделка #' + newId + ' создана!\n' + name + ' / ' + phone + '\n' + need + ' / ' + price);
 }
 
 async function showAllDeals(chatId) {
@@ -107,7 +124,7 @@ async function showAllDeals(chatId) {
 
   let msg = '📋 Все сделки:\n\n';
   for (let i = 1; i < rows.length; i++) {
-    msg += `#${rows[i][0]} ${rows[i][2]} — ${rows[i][7]}\n`;
+    msg += '#' + rows[i][0] + ' ' + rows[i][2] + ' — ' + rows[i][7] + '\n';
   }
   await sendTg(chatId, msg);
 }
@@ -132,16 +149,20 @@ async function showTodayTasks(chatId) {
     d.setHours(0, 0, 0, 0);
     if (d <= today) {
       count++;
-      msg += `#${rows[i][0]} ${rows[i][2]} ${rows[i][3]}\n`;
+      msg += '#' + rows[i][0] + ' ' + rows[i][2] + ' ' + rows[i][3] + '\n';
     }
   }
-  await sendTg(chatId, count > 0 ? `📅 На сегодня:\n\n${msg}` : '✅ Задач на сегодня нет');
+  await sendTg(chatId, count > 0 ? '📅 На сегодня:\n\n' + msg : '✅ Задач на сегодня нет');
 }
 
 async function sendTg(chatId, text) {
-  await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+  console.log('Sending to', chatId, ':', text.substring(0, 50));
+  const resp = await fetch('https://api.telegram.org/bot' + TOKEN + '/sendMessage', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text: text })
   });
+  const data = await resp.json();
+  console.log('Telegram response:', JSON.stringify(data));
+  return data;
 }
