@@ -1,0 +1,7 @@
+{
+  "name": "fs-crm-bot",
+  "version": "1.0.0",
+  "dependencies": {
+    "googleapis": "^129.0.0"
+  }
+}
